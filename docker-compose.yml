@@ -1,0 +1,19 @@
+# Prova locale completa: app + PostgreSQL. `cp .env.example .env` poi `docker compose up --build`
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tdnc
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d tdnc"], interval: 10s, timeout: 5s, retries: 10 }
+  app:
+    build: .
+    ports: ["3000:3000"]
+    depends_on: { db: { condition: service_healthy } }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://postgres:dev@db:5432/tdnc
+volumes:
+  pgdata:
