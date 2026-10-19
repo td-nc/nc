@@ -186,12 +186,50 @@ test('SLA: scadenza calcolata in ore lavorative; scheduler invia sollecito su NC
   await pool.end();
 });
 
-test('canali LIS: push e HL7 rifiutati senza segreto', async () => {
+test('HL7 StudioLAB: parser sui messaggi di esempio della specifica CB Sistemi rev. 3', async () => {
+  const { parseHl7, ack } = await import('../src/lib/hl7.js');
+  // OML_O21 inserimento accettazione (pag. 7)
+  const oml = 'MSH|^~\\&|TESTCUP|TESTFACILITY|STUDIOLAB|TIZIANO|20260331120000||OML^O21^OML_O21|TEST-MSG-001|P|2.5|||||UNICODE UTF-8\r\nPID|||RSSMRA85M01H501Z^^^^NN~TEST-PAZ-001^^^^PI||ROSSI^MARIO||19850801|M|||^^ROMA^RM^00100^IT^L^^058091\r\nPV1||O|||||||||||||||||TEST-ACC-002^^^^VN|||||||||||||||||||||||||20260331\r\nORC|NW|TEST-ACC-002-1||TEST-ACC-002|||||20260331||||3606\r\nOBR||TEST-ACC-002-1||0014^EMOCROMO\r\nORC|NW|TEST-ACC-002-2||TEST-ACC-002|||||20260331||||3606\r\nOBR||TEST-ACC-002-2||200^GLICEMIA\r\n';
+  const p1 = parseHl7(oml);
+  assert.equal(p1.type, 'OML_O21'); assert.equal(p1.trigger, 'O21');
+  assert.equal(p1.accettazione.id, 'TEST-ACC-002'); assert.equal(p1.accettazione.sede_codice, '3606'); assert.equal(p1.accettazione.sede_da_msh, false);
+  assert.equal(p1.accettazione.paziente.cf, 'RSSMRA85M01H501Z'); assert.equal(p1.accettazione.paziente.cognome, 'ROSSI'); assert.equal(p1.accettazione.paziente.nascita, '1985-08-01');
+  assert.equal(p1.accettazione.data_accettazione, '2026-03-31'); assert.equal(p1.accettazione.esami.length, 2); assert.equal(p1.accettazione.esami[1].cod, '200');
+  assert.match(ack(p1, true), /\|ACK\^O21\|/); assert.match(ack(p1, true), /MSA\|AA\|TEST-MSG-001\|OK/);
+  assert.match(ack(p1, false, 'Codice esame 9999 non trovato'), /MSA\|AE\|TEST-MSG-001\|Codice esame 9999 non trovato/);
+  // OML_O21 notifica cambio stato (pag. 15): ORC-1 SC, ORC-5 IP, filler ID esame
+  const notif = 'MSH|^~\\&|STUDIOLAB|STUDIOLAB|TESTCUP|TESTFACILITY|20260331||OML^O21|SC-5|P|2.5|||||UNICODE UTF-8\r\nPID|||TEST-PAZ-001^^^^PI~^^^^NN||ROSSI^MARIO||19850801|M\r\nPV1||O|||||||||||||||||TEST-ACC-004||||||||||||||||||||||||20260331\r\nORC|SC|TEST-ACC-004-2|61571|TEST-ACC-004|IP||||20260331000000\r\nOBR|1|TEST-ACC-004-2|61571|206\r\nORC|HD|TEST-ACC-004-1|61570|TEST-ACC-004|HD||||20260331000000\r\nOBR|2|TEST-ACC-004-1|61570|0014\r\n';
+  const p2 = parseHl7(notif);
+  assert.equal(p2.accettazione.id, 'TEST-ACC-004'); assert.equal(p2.accettazione.sede_codice, 'STUDIOLAB'); assert.equal(p2.accettazione.sede_da_msh, true);
+  assert.equal(p2.accettazione.esami[0].idEsame, '61571'); assert.equal(p2.accettazione.esami[0].stato, 10); assert.equal(p2.accettazione.esami[1].bloccato, true);
+  // ORL_O22 risposta: numero accettazione del laboratorio in OBR-20
+  const orl = 'MSH|^~\\&|STUDIOLAB|LAB1|CUP_APP|PRESIDIO1|20231010101221||ORL^O22^ORL_O22|20231010101221175|P|2.5\r\nMSA|AA|msg-001\r\nORC|OK|ACC-001-1|LAB-29016630|ACC-001\r\nOBR|1|ACC-001-1|LAB-29016630|200||||||||||||||||NUM-ACC-LAB\r\n';
+  const p3 = parseHl7(orl);
+  assert.equal(p3.accettazione.id_lab, 'NUM-ACC-LAB'); assert.equal(p3.accettazione.id, 'NUM-ACC-LAB'); assert.equal(p3.accettazione.id_richiesta_cliente, 'ACC-001');
+  // MDM_T02 referto: esame non eseguito per non conformità (ORC-1 OC)
+  const mdm = 'MSH|^~\\&|STUDIOLAB|STUDIOLAB|TESTCUP|TESTFACILITY|20260331||MDM^T02|7159-1|P|2.5|||||UNICODE UTF-8\r\nEVN|T02|20260331||||20260331\r\nPID|||TEST-PAZ-001^^^^PI~^^^^NN||ROSSI^MARIO||19850801|M\r\nPV1||O|3606|R||||||||||||||||TEST-ACC-004^^^AMB^VN^^^^3606|||||||||||||||||||||||||20260331\r\nORC|NW|TEST-ACC-004-2|61571|TEST-ACC-004|CM|||20260331124412|||||20260331\r\nOBR||TEST-ACC-004-2|61571|206^Glicosuria|R||20260331124249|20260331124249\r\nORC|OC|TEST-ACC-004-1|61570|TEST-ACC-004|CM|||20260331124412|||||20260331\r\nOBR||TEST-ACC-004-1|61570|0014^Emocromocitometrico completo|R||20260331124249|20260331124249\r\nTXA|1|CN|multipart|20260331||20260331124249|||Admin^ADMIN|||R26-002438||TEST-ACC-004|TEST-ACC-004||LA||||01\r\n';
+  const p4 = parseHl7(mdm);
+  assert.equal(p4.type, 'MDM_T02'); assert.equal(p4.referto.numero, 'R26-002438'); assert.equal(p4.accettazione.esami[1].nonEseguito, true); assert.equal(p4.accettazione.esami[0].stato, 40);
+});
+
+test('canale HL7 end-to-end: rifiuto senza segreto, ACK sempre HTTP 200, accettazione in archivio con sede e paziente', async () => {
   const p = await fetch(BASE + '/api/lis/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ IdAccettazione: '1' }) });
   assert.ok([401, 503].includes(p.status));
-  const { parseHl7, ack } = await import('../src/lib/hl7.js');
-  const msg = 'MSH|^~\\&|STUDIOLAB|PP-FIRENZE-01|TDNC|TD|20261004120000||ORM^O01|MSG0001|P|2.5\rPID|1||RSSMRA61C12D612X^^^CF||ROSSI^MARIO||19610312|M\rORC|NW|CLI-77|26100999|||||||20261004115500\rOBR|1|CLI-77|26100999|EMO^Emocromo\rOBR|2|CLI-77|26100999|K^Potassio\r';
-  const parsed = parseHl7(msg);
-  assert.equal(parsed.accettazione.id, '26100999'); assert.equal(parsed.accettazione.sede_codice, 'PP-FIRENZE-01'); assert.equal(parsed.accettazione.paziente.cognome, 'ROSSI'); assert.equal(parsed.accettazione.esami.length, 2);
-  assert.match(ack(parsed, true), /MSA\|AA\|MSG0001/);
+  const secret = process.env.LIS_PUSH_SECRET;
+  if (!secret) return;   // server avviato senza LIS_PUSH_SECRET
+  await admin.post('/sedi', { codice: '3606', nome: 'CUP Test 3606', tipo: 'SERVICE', email_nc_override: 'cup3606@example.test' });
+  const oml = 'MSH|^~\\&|TESTCUP|TESTFACILITY|STUDIOLAB|TIZIANO|20260331120000||OML^O21^OML_O21|E2E-001|P|2.5|||||UNICODE UTF-8\r\nPID|||RSSMRA85M01H501Z^^^^NN~TEST-PAZ-001^^^^PI||ROSSI^MARIO||19850801|M\r\nPV1||O|||||||||||||||||HL7-ACC-77^^^^VN|||||||||||||||||||||||||20260331\r\nORC|NW|HL7-ACC-77-1||HL7-ACC-77|||||20260331||||3606\r\nOBR||HL7-ACC-77-1||0014^EMOCROMO\r\n';
+  const bad = await fetch(BASE + '/api/hl7', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-API-KEY': 'sbagliata' }, body: oml });
+  assert.equal(bad.status, 401);
+  const ok = await fetch(BASE + '/api/hl7', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-API-KEY': secret }, body: oml });
+  assert.equal(ok.status, 200); const body = await ok.text(); assert.match(body, /MSA\|AA\|E2E-001\|OK/);
+  const acc = await admin.get('/accettazioni/HL7-ACC-77'); assert.equal(acc.status, 200); assert.equal(acc.data.sede_codice, '3606'); assert.equal(acc.data.paziente_cognome, 'ROSSI'); assert.equal(acc.data.origine, 'HL7'); assert.equal(acc.data.esami[0].cod, '0014');
+  const broken = await fetch(BASE + '/api/hl7', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-API-KEY': secret }, body: 'PID|garbage' });
+  assert.equal(broken.status, 200); assert.match(await broken.text(), /MSA\|AE\|/);
+  // notifica di blocco (HD) aggiorna gli esami in archivio
+  const hd = 'MSH|^~\\&|STUDIOLAB|STUDIOLAB|TDNC|TD|20260401||OML^O21|E2E-002|P|2.5\r\nPID|||RSSMRA85M01H501Z^^^^NN||ROSSI^MARIO||19850801|M\r\nPV1||O|||||||||||||||||HL7-ACC-77||||||||||||||||||||||||20260331\r\nORC|HD|HL7-ACC-77-1|61570|HL7-ACC-77|HD||||20260401000000\r\nOBR|1|HL7-ACC-77-1|61570|0014\r\n';
+  const r2 = await fetch(BASE + '/api/hl7', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-API-KEY': secret }, body: hd });
+  assert.equal(r2.status, 200);
+  const acc2 = await admin.get('/accettazioni/HL7-ACC-77'); assert.equal(acc2.data.esami[0].bloccato, true); assert.equal(acc2.data.sede_codice, '3606');
+  const st = await admin.get('/lis/status'); assert.ok(st.data.stats.hl7 >= 3);
 });

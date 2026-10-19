@@ -29,8 +29,7 @@ r.post('/users', requireQualita, ah(async (req, res) => {
   if (b.role === 'SEDE' && !b.sedi.length) throw bad('Un utente di sede deve essere associato ad almeno una sede');
   let tempPassword = null, hash = null;
   if (b.auth_provider !== 'ENTRA') {
-    if (b.role === 'ADMIN') throw bad('Gli amministratori accedono solo con Microsoft 365');
-    tempPassword = tempPwd(); hash = await bcrypt.hash(tempPassword, 12);
+    tempPassword = tempPwd(); hash = await bcrypt.hash(tempPassword, 12);   // anche gli amministratori possono avere credenziali locali (utenti fuori dal tenant Microsoft)
   }
   const u = await tx(async (c) => {
     const ins = await c.query(
@@ -56,7 +55,6 @@ r.put('/users/:id', requireQualita, ah(async (req, res) => {
   if (!cur) throw notFound('Utente non trovato');
   if (req.user.role !== 'ADMIN' && (cur.role !== 'SEDE' || (b.role && b.role !== 'SEDE'))) throw forbidden('Solo un amministratore può modificare utenti interni');
   if (cur.id === req.user.id && ((b.role && b.role !== 'ADMIN') || (b.status && b.status !== 'ACTIVE'))) throw forbidden('Non puoi declassare o disabilitare il tuo stesso account');
-  if (b.role === 'ADMIN' && cur.auth_provider === 'LOCAL') throw bad('Gli amministratori accedono solo con Microsoft 365');
   const u = await tx(async (c) => {
     await c.query(
       `UPDATE users SET full_name=coalesce($2,full_name), role=coalesce($3,role), status=coalesce($4,status), organization=coalesce($5,organization), telefono=coalesce($6,telefono), notify_email=coalesce($7,notify_email), updated_at=now() WHERE id=$1`,

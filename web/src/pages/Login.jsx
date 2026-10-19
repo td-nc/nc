@@ -32,7 +32,7 @@ export default function Login() {
         <form onSubmit={submit}>
           <div>
             <h1>Accedi</h1>
-            <div className="muted" style={{ marginTop: 4 }}>Personale Toscana Diagnostica con il proprio account Microsoft 365. Punti prelievo, centri medici e clienti Service con le credenziali fornite in fase di attivazione del servizio.</div>
+            <div className="muted" style={{ marginTop: 4 }}>Personale Toscana Diagnostica con il proprio account Microsoft 365. Punti prelievo, centri medici, clienti Service e collaboratori esterni con le credenziali fornite dal laboratorio.</div>
           </div>
           <ErrorBox error={err} />
           {cfg.entraEnabled && <>

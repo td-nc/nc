@@ -5,7 +5,7 @@ import { useApi, Loading, Empty, Field, Modal, ErrorBox, Badge, useToast } from 
 import { ROLE, USTATUS, AUTH, itDateTime } from '../format.js';
 
 const ROLE_HELP = {
-  ADMIN: 'Tutto: utenti interni, impostazioni, LIS, email. Accede solo con Microsoft 365.',
+  ADMIN: 'Tutto: utenti interni, impostazioni, LIS, email. Può usare Microsoft 365 o credenziali locali (anche con email fuori dal dominio toscanadiagnostica.it).',
   QUALITA: 'Responsabile qualità: RCA, CAPA, verifica di efficacia, catalogo, sedi, accessi delle sedi, registro attività.',
   LAB: 'Preanalitica e laboratorio: rileva, tratta, dialoga con la sede, chiude.',
   SEDE: 'Punto prelievo, centro medico o cliente Service: vede e risponde solo alle NC delle sedi associate.',
@@ -48,7 +48,7 @@ export default function Users() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Utenti e accessi</h1><div className="sub">Il personale Toscana Diagnostica entra con Microsoft 365 (abilitato in automatico come Laboratorio). Le sedi e i clienti Service ricevono credenziali create qui, vincolate alle loro sedi.</div></div>
+        <div><h1>Utenti e accessi</h1><div className="sub">Il personale Toscana Diagnostica entra con Microsoft 365 (abilitato in automatico come Laboratorio). Le sedi e i clienti Service ricevono credenziali create qui, vincolate alle loro sedi. Utenti interni esterni al dominio (anche amministratori) si creano qui con email e password.</div></div>
         <button className="btn" onClick={openNew}>Nuovo utente</button>
       </div>
       {pending.length > 0 && <div className="alert info" style={{ marginBottom: 14 }}>{pending.length} account in attesa di abilitazione.</div>}

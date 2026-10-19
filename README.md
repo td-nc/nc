@@ -16,7 +16,7 @@ Tre macro-aree di NC (fisiche/biologiche, informatiche/LIS, documentali) con cat
 
 **Statistiche ed evidenze.** Cruscotto, Pareto delle tipologie, trend mensile per macro-area, per sede (con NC/1.000 accettazioni), per gravità, cause radice, rispetto SLA, tempo medio di risposta e di chiusura, CAPA scadute. Export XLSX, rapporto NC in PDF, registro attività completo, registro email.
 
-**Profili.** Amministratore (tutto), Qualità (RCA/CAPA/verifica, catalogo, sedi, accessi delle sedi, impostazioni, registro), Laboratorio (rileva, tratta, dialoga, chiude), Sede (solo le proprie NC), Sola lettura.
+**Profili.** Amministratore (tutto; Microsoft 365 oppure credenziali locali, anche con email fuori dal dominio TD), Qualità (RCA/CAPA/verifica, catalogo, sedi, accessi delle sedi, impostazioni, registro), Laboratorio (rileva, tratta, dialoga, chiude), Sede (solo le proprie NC), Sola lettura.
 
 ## Architettura
 
@@ -46,18 +46,15 @@ Alternativa SMTP (richiede SMTP AUTH abilitato sulla casella): `MAIL_PROVIDER=sm
 
 `MAIL_LAB_NOTIFY` elenca gli indirizzi interni che ricevono risposte delle sedi ed escalation (oltre agli utenti Laboratorio/Qualità con notifiche attive).
 
-## StudioLAB (CB Sistemi): cosa chiedere
+## StudioLAB (CB Sistemi): integrazione
 
-Lo swagger pubblico (`https://servicenet.studiolab.it/swagger/ui/index`, versione 10.0.7.0) espone: lettura accettazione per numero (`GET /api/accettazioni?id=`), blocco/sblocco esame, allegati, notizie cliniche, `POST /api/push` (NotificaPush), `POST /hl7`. Il modello `Cliente` ha il campo `EmailNonConformita` e l'esame ha `TipoNonConformita`/`NonConformita`: td-nc li usa.
+**API REST ServiceNET** (`https://servicenet.studiolab.it/swagger/ui/index`, v10.0.7.0): lettura accettazione per numero (`GET /api/accettazioni?id=`), blocco/sblocco esame, allegati, notizie cliniche. Il modello `Cliente` ha `EmailNonConformita`, l'esame ha `TipoNonConformita`/`NonConformita`. Variabili: `LIS_API_KEY`, `LIS_CODICE_CLIENTE`, `LIS_WRITE_BACK`. Limite: la lettura per numero non restituisce paziente né cliente inviante e non esiste un elenco accettazioni.
 
-Limite: la lettura per numero **non restituisce paziente né cliente inviante** e non esiste un elenco accettazioni per data o sede. Per avere l'archivio completo serve uno dei due canali in ingresso:
+**HL7 v2.5 over HTTPS** secondo la specifica CB Sistemi "Integrazione HL7 con ServiceNET" rev. 3 (27/03/2026), Appendice B: StudioLAB invia `POST {BASE_URL}/api/hl7`, `Content-Type: text/plain`, header `X-API-KEY: <LIS_PUSH_SECRET>`, body HL7 (segmenti separati da `\r\n`); td-nc risponde sempre HTTP 200 con l'ACK nel body (`MSA|AA` oppure `MSA|AE|<errore>`, `MSH-9 = ACK^<trigger>`). Messaggi gestiti: `OML^O21` (inserimento e notifica cambio stato: ORC-1 NW/SC/HD/SN/CA, ORC-5 IP/CA/HD/CM/SC), `ORL^O22` (numero accettazione del laboratorio in OBR-20), `MDM^T02/T10` (referto; ORC-1 `OC` = esame non eseguito per non conformità), `ADT^A05/A39` (anagrafica). Mappatura: PID-3 `NN` codice fiscale, PID-5/7/8 paziente, PV1-19/ORC-4 id accettazione placer, PV1-44 data, **ORC-13 codice cliente = sede inviante** (fallback FT1-13.1; MSH-4 solo in mancanza, senza creare sedi), OBR-4 esami. Gli esami in HD/OC vengono marcati come bloccati/non eseguiti nell'archivio. MLLP/TCP non è supportato (Render non espone porte TCP): usare HL7 over HTTPS.
 
-- **HL7 ORM^O01 over HTTPS** da StudioLAB a `POST {BASE_URL}/api/hl7` con header `X-Push-Secret: <LIS_PUSH_SECRET>` (body testo HL7, risposta ACK). Mappatura implementata: MSH-4 sede, PID paziente, ORC-3/OBR-3 numero accettazione, OBR-4 esami. Da confermare con CB Sistemi sulla loro documentazione.
-- **Notifica push** `POST {BASE_URL}/api/lis/push` con lo stesso header e body `{IdAccettazione, TipoNotifica, IdDocumento}`: td-nc rilegge l'accettazione via API.
+**Punto aperto con CB Sistemi**: la specifica descrive un dialogo Placer-Filler, cioè StudioLAB notifica al sistema che ha inserito l'ordine. Le accettazioni create direttamente in StudioLAB dai punti prelievo non hanno un Placer esterno: va chiesto a CB di configurare il nodo td-nc come destinatario delle notifiche `OML^O21` (almeno al check-in) per tutte le accettazioni del laboratorio, con ORC-13 valorizzato (codice cliente) e il numero di accettazione lato laboratorio (OBR-20 o PV1-19). Senza questa configurazione il flusso automatico copre solo i clienti Service che ordinano via HL7; per il resto la preanalitica registra l'accettazione a mano.
 
-Richiesta a CB Sistemi: (1) API key di nodo per `servicenet.studiolab.it` con `CodiceCliente` del laboratorio; (2) attivazione del flusso HL7 ordini (o push) verso l'endpoint td-nc; (3) conferma dei codici `StatoAvanzamento` (0/10/20/25/40) e della tabella `TipoNonConformita`; (4) abilitazione del nodo a blocco/sblocco esami e caricamento allegati (`LIS_WRITE_BACK=true`).
-
-Senza nulla di tutto questo l'app è comunque operativa: la preanalitica registra l'accettazione a mano (sede dal menu, paziente, esami) e il flusso NC è identico. Le statistiche "NC per 1.000 accettazioni" diventano attendibili solo con il flusso completo.
+**Notifica push** (`POST {BASE_URL}/api/lis/push`, JSON `{IdAccettazione, TipoNotifica, IdDocumento}`, stesso header): td-nc rilegge l'accettazione via API.
 
 ## Sviluppo locale e test
 
