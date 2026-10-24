@@ -150,7 +150,7 @@ function AzioniCard({ nc, azioni, reload }) {
   );
 }
 
-function ChiusuraCard({ nc, azioni, reload, cfg }) {
+function ChiusuraCard({ nc, azioni, messaggi = [], reload, cfg }) {
   const { user } = useAuth();
   const toast = useToast();
   const nav = useNavigate();
@@ -160,6 +160,11 @@ function ChiusuraCard({ nc, azioni, reload, cfg }) {
   const open = APERTE.includes(nc.stato);
   const canClose = open && nc.trattamento_tipo && (!nc.rca_richiesta || nc.rca_causa);
   const azioniAperte = azioni.filter((a) => !['COMPLETATA', 'ANNULLATA'].includes(a.stato)).length;
+  const haRisposte = messaggi.some((m) => m.direzione === 'SEDE_LAB');
+  const elimina = async () => {
+    if (!window.confirm(`Eliminare definitivamente ${nc.codice}? Spariscono scheda, comunicazioni e allegati; il codice non viene riutilizzato. Se la sede ha già risposto l'operazione viene rifiutata.`)) return;
+    try { await api.del(`/nc/${nc.id}`); toast('NC eliminata'); nav('/nc'); } catch (e) { toast(e.message, 'err'); }
+  };
   const chiudi = async () => { setErr(null); try { const r = await api.post(`/nc/${nc.id}/chiudi`, { esito: f.esito, notifica_sede: f.notifica_sede, sblocca_lis: f.sblocca_lis, allega_rapporto_lis: f.allega_rapporto_lis, version: nc.version }); setModal(null); toast(`${nc.codice} chiusa${r.email ? ` · email ${r.email.stato.toLowerCase()}` : ''}`); reload(); } catch (e) { setErr(e); } };
   const verifica = async () => { setErr(null); try { await api.post(`/nc/${nc.id}/verifica`, { verifica_esito: f.verifica_esito, verifica_note: f.verifica_note, version: nc.version }); setModal(null); toast('Verifica registrata'); reload(); } catch (e) { setErr(e); } };
   return (
@@ -177,6 +182,7 @@ function ChiusuraCard({ nc, azioni, reload, cfg }) {
           {nc.stato === 'CHIUSA' && isQualita(user) && <button className="btn" onClick={() => setModal('verifica')}>Registra verifica di efficacia</button>}
           {['CHIUSA', 'VERIFICATA'].includes(nc.stato) && <button className="btn ghost" onClick={() => setModal('riapri')}>Riapri</button>}
           {open && isQualita(user) && <button className="btn danger" onClick={() => setModal('annulla')}>Annulla NC</button>}
+          {isLab(user) && ['APERTA', 'INVIATA_SEDE', 'ANNULLATA'].includes(nc.stato) && !haRisposte && <button className="btn danger ghost" title="Solo finché la sede non ha risposto: cancella la NC e il suo storico" onClick={elimina}>Elimina NC</button>}
         </div>
       </div>
       {modal === 'chiudi' && <Modal title={`Chiusura ${nc.codice}`} onClose={() => setModal(null)} footer={<><button className="btn ghost" onClick={() => setModal(null)}>Annulla</button><button className="btn" disabled={f.esito.trim().length < 5} onClick={chiudi}>Chiudi la non conformità</button></>}>
@@ -310,7 +316,7 @@ export default function NcDetail() {
             <TrattamentoCard nc={nc} reload={reload} />
             <RcaCard nc={nc} reload={reload} />
             <AzioniCard nc={nc} azioni={azioni} reload={reload} />
-            <ChiusuraCard nc={nc} azioni={azioni} reload={reload} cfg={cfg} />
+            <ChiusuraCard nc={nc} azioni={azioni} messaggi={messaggi} reload={reload} cfg={cfg} />
             <Card title={`Email (${email.length})`} flush>
               {!email.length ? <Empty>Nessuna email</Empty> : <table className="t"><tbody>{email.map((e) => <tr key={e.id}><td className="small"><div><b>{e.tipo.replace('NC_', '')}</b> · {itDateTime(e.created_at)}</div><div className="muted">{e.destinatari}</div>{e.errore && <div className="red">{e.errore}</div>}</td><td style={{ textAlign: 'right' }}><Badge tone={e.stato === 'INVIATA' ? 'green' : e.stato === 'ERRORE' ? 'red' : e.stato === 'SIMULATA' ? 'mauve' : 'grey'}>{e.stato.toLowerCase()}</Badge></td></tr>)}</tbody></table>}
             </Card>

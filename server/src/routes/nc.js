@@ -382,6 +382,26 @@ r.post('/nc/:id/annulla', requireQualita, ah(async (req, res) => {
   res.json(viewFor(full, req.user));
 }));
 
+// Eliminazione definitiva: solo per il laboratorio, solo se la sede non ha ancora risposto (nessun messaggio SEDE_LAB) e la NC
+// non è stata trattata/chiusa. Serve per gli inserimenti errati; per tutto il resto resta l'annullamento, che conserva lo storico.
+r.delete('/nc/:id', requireLab, ah(async (req, res) => {
+  const nc = await getVisible(req, req.params.id);
+  const risposte = await one(`SELECT count(*)::int AS n FROM nc_messaggi WHERE nc_id=$1 AND direzione='SEDE_LAB'`, [nc.id]);
+  if (risposte.n > 0) throw bad(`La sede ha già risposto (${risposte.n} messaggi): la NC non si elimina, al massimo si annulla`);
+  if (!['APERTA', 'INVIATA_SEDE', 'ANNULLATA'].includes(nc.stato)) throw bad(`La NC è ${STATO_LABEL[nc.stato].toLowerCase()}: non si elimina, si annulla`);
+  const acc = await one('SELECT * FROM accettazioni WHERE id=$1', [nc.accettazione_id]);
+  const esiti = {};
+  if (nc.blocco_lis) esiti.sblocco = await sbloccaSuLis(nc, acc);
+  if (nc.lis_segnalazione_id) esiti.segnalazione = await risolviSegnalazioneLis(nc, 'NC eliminata in td-nc (inserimento errato)', who(req));
+  await tx(async (c) => {
+    await c.query('UPDATE email_log SET nc_id=NULL WHERE nc_id=$1', [nc.id]);
+    await c.query('DELETE FROM nc WHERE id=$1', [nc.id]);
+    await audit(req, 'NC_DELETED', { entity: 'nc', entityId: nc.id, label: `${nc.codice} · ${nc.sede_nome} · eliminata (${nc.stato.toLowerCase()}, nessuna risposta della sede)` }, c);
+  });
+  emit('nc.deleted', { id: nc.id, codice: nc.codice, sede_id: nc.sede_id }, who(req), 'eliminata');
+  res.json({ ok: true, ...esiti });
+}));
+
 // ---------- allegati ----------
 r.post('/nc/:id/allegati', ah(async (req, res) => {
   const nc = await getVisible(req, req.params.id);

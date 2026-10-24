@@ -286,3 +286,14 @@ test('eliminazione accettazione: solo se manuale e senza NC; quelle dal LIS/HL7 
   const hl7 = await admin.del('/accettazioni/HL7-ACC-77'); if (hl7.status !== 404) assert.equal(hl7.status, 400);
   const withNc = await admin.del(`/accettazioni/${encodeURIComponent(nc.accettazione_id)}`); assert.equal(withNc.status, 400);
 });
+
+test('eliminazione NC: consentita senza risposta della sede, rifiutata dopo la risposta o se trattata', async () => {
+  const tipi = (await admin.get('/tipi')).data; const t = tipi.filter((x) => x.macro === 'INFORMATICA' && x.attivo).at(-1);
+  const r = await admin.post('/nc', { accettazione_id: acc.id, macro: 'INFORMATICA', tipo_id: t.id, gravita: 'MINORE', descrizione: 'Aperta per errore su accettazione sbagliata', azione_attesa: 'Nessuna', invia: true });
+  assert.equal(r.status, 201); assert.equal(r.data.stato, 'INVIATA_SEDE');
+  const d = await admin.del(`/nc/${r.data.id}`); assert.equal(d.status, 200); assert.equal((await admin.get(`/nc/${r.data.id}`)).status, 404);
+  // la NC del flusso principale ha una risposta della sede: non si elimina
+  const no = await admin.del(`/nc/${nc.id}`); assert.equal(no.status, 400); assert.match(no.data.error, /risposto|annulla/);
+  // utente di sede: vietato
+  const forb = await sedeUser.del(`/nc/${nc.id}`); assert.equal(forb.status, 403);
+});
