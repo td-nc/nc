@@ -81,4 +81,17 @@ r.patch('/accettazioni/:id/sede', requireLab, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Eliminazione: solo accettazioni registrate a mano, senza non conformità. Quelle arrivate dal LIS (API, HL7, push) non si eliminano:
+// sono la copia di un dato che esiste in StudioLAB e verrebbero comunque ricreate alla prossima notifica.
+r.delete('/accettazioni/:id', requireLab, ah(async (req, res) => {
+  const acc = await one('SELECT * FROM accettazioni WHERE id=$1', [req.params.id]);
+  if (!acc) throw notFound('Accettazione non trovata');
+  if (acc.origine !== 'MANUALE') throw bad(`L'accettazione proviene da StudioLAB (${acc.origine}) e non si può eliminare`);
+  const n = await one('SELECT count(*)::int AS n FROM nc WHERE accettazione_id=$1', [acc.id]);
+  if (n.n > 0) throw bad(`L'accettazione ha ${n.n} non conformità collegate: annullale prima di eliminarla`);
+  await one('DELETE FROM accettazioni WHERE id=$1 RETURNING id', [acc.id]);
+  await audit(req, 'ACC_DELETED', { entity: 'accettazione', entityId: acc.id, label: `${acc.id} · registrata manualmente, eliminata` });
+  res.json({ ok: true });
+}));
+
 export default r;

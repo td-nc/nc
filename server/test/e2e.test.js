@@ -270,3 +270,19 @@ test('import sedi dall\'esportazione "Elenco clienti" di StudioLAB: create, aggi
   const r2 = await admin.post('/sedi/import', { base64: fs.readFileSync(file).toString('base64') }); assert.equal(r2.data.create, 0); assert.equal(r2.data.aggiornate, 98);
   const pp2 = (await admin.get('/sedi?tutte=1')).data.find((s) => s.codice === 'TD01'); assert.equal(pp2.email_effettiva, 'quarrata@toscanadiagnostica.it');
 });
+
+test('eliminazione sede: consentita senza NC, rifiutata con NC in archivio, vietata per la sede interna', async () => {
+  const all = (await admin.get('/sedi?tutte=1')).data;
+  const libera = all.find((s) => s.codice === 'SER0047'); if (libera) { const r = await admin.del(`/sedi/${libera.id}`); assert.equal(r.status, 200); assert.equal((await admin.get('/sedi?tutte=1')).data.some((s) => s.codice === 'SER0047'), false); }
+  const conNc = all.find((s) => s.id === sede.id); const r2 = await admin.del(`/sedi/${conNc.id}`); assert.equal(r2.status, 400); assert.match(r2.data.error, /non conformità/);
+  const lab = all.find((s) => s.codice === 'LAB-SESTO'); const r3 = await admin.del(`/sedi/${lab.id}`); assert.equal(r3.status, 400);
+  const r4 = await admin.del('/sedi/999999'); assert.equal(r4.status, 404);
+});
+
+test('eliminazione accettazione: solo se manuale e senza NC; quelle dal LIS/HL7 sono protette', async () => {
+  const man = await admin.post('/accettazioni', { id: 'MAN-DEL-1', sede_id: sede.id, paziente_cognome: 'DA', paziente_nome: 'ELIMINARE', esami: [{ cod: 'GLU', descrizione: 'Glucosio' }] }); assert.equal(man.status, 201);
+  const ok = await admin.del('/accettazioni/MAN-DEL-1'); assert.equal(ok.status, 200); assert.equal((await admin.get('/accettazioni/MAN-DEL-1')).status, 404);
+  const lis = await admin.del('/accettazioni/LIS-2026-500'); if (lis.status !== 404) { assert.equal(lis.status, 400); assert.match(lis.data.error, /StudioLAB/); }
+  const hl7 = await admin.del('/accettazioni/HL7-ACC-77'); if (hl7.status !== 404) assert.equal(hl7.status, 400);
+  const withNc = await admin.del(`/accettazioni/${encodeURIComponent(nc.accettazione_id)}`); assert.equal(withNc.status, 400);
+});

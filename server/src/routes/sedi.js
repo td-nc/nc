@@ -52,6 +52,22 @@ r.put('/sedi/:id', requireQualita, ah(async (req, res) => {
   res.json(s);
 }));
 
+// Eliminazione: solo se la sede non ha non conformità. Le accettazioni in archivio perdono il riferimento (sede da riassegnare),
+// gli utenti di sede perdono l'associazione. Con NC presenti si usa la disattivazione, per non rompere lo storico e le statistiche.
+r.delete('/sedi/:id', requireQualita, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const cur = await one('SELECT * FROM sedi WHERE id=$1', [id]);
+  if (!cur) throw notFound('Sede non trovata');
+  if (cur.tipo === 'LABORATORIO' && cur.codice === 'LAB-SESTO') throw bad('La sede interna del laboratorio non si elimina');
+  const n = await one('SELECT count(*)::int AS n FROM nc WHERE sede_id=$1', [id]);
+  if (n.n > 0) throw bad(`La sede ha ${n.n} non conformità in archivio: va disattivata, non eliminata`);
+  const acc = await one('SELECT count(*)::int AS n FROM accettazioni WHERE sede_id=$1', [id]);
+  await one('UPDATE accettazioni SET sede_id=NULL, updated_at=now() WHERE sede_id=$1 RETURNING 1', [id]).catch(() => null);
+  await one('DELETE FROM sedi WHERE id=$1 RETURNING id', [id]);
+  await audit(req, 'SEDE_DELETED', { entity: 'sede', entityId: id, label: `${cur.nome} (${cur.codice})${acc.n ? ` · ${acc.n} accettazioni senza sede` : ''}` });
+  res.json({ ok: true, accettazioni_scollegate: acc.n });
+}));
+
 // ---- import anagrafica clienti da StudioLAB (esportazione Excel "Elenco clienti")
 // Colonne riconosciute (intestazioni StudioLAB): CodiceCliente, CodiceClienteFatturazione, RagSoc, PersonaDiRiferimento, Indirizzo, Cap, Citta,
 // Provincia, Telefono1, Telefono2, email, TipoCliente. Crea le sedi nuove e aggiorna nome/contatti di quelle esistenti senza toccare

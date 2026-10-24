@@ -36,6 +36,12 @@ export default function Sedi() {
     catch (e) { setImp({ error: e.message }); }
     finally { if (fileRef.current) fileRef.current.value = ''; }
   };
+  const remove = async (s) => {
+    if (s.nc_90gg > 0 || s.nc_aperte > 0) { toast('La sede ha non conformità in archivio: disattivala dalla modifica', 'err'); return; }
+    if (!window.confirm(`Eliminare la sede ${s.nome} (${s.codice})? L'operazione non si annulla. Se ha non conformità verrà rifiutata.`)) return;
+    try { const r = await api.del(`/sedi/${s.id}`); toast(`Sede eliminata${r.accettazioni_scollegate ? ` · ${r.accettazioni_scollegate} accettazioni da riassegnare` : ''}`); reload(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
   const rows = (data || []).filter((s) => !q || `${s.nome} ${s.codice} ${s.citta || ''}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="page">
@@ -66,7 +72,7 @@ export default function Sedi() {
                 <td className="num">{s.nc_aperte > 0 ? <Badge tone="yellow">{s.nc_aperte}</Badge> : <span className="muted">0</span>}</td>
                 <td className="num">{s.nc_90gg}</td>
                 <td className="num small">{s.n_utenti}</td>
-                <td><div className="row end" style={{ gap: 6 }}><Link className="btn sm ghost" to={`/nc?sede=${s.id}`}>NC</Link>{q2 && <button className="btn sm ghost" onClick={() => openEdit(s)}>Modifica</button>}</div></td>
+                <td><div className="row end" style={{ gap: 6 }}><Link className="btn sm ghost" to={`/nc?sede=${s.id}`}>NC</Link>{q2 && <button className="btn sm ghost" onClick={() => openEdit(s)}>Modifica</button>}{q2 && s.codice !== 'LAB-SESTO' && <button className="btn sm danger" title={s.nc_90gg > 0 || s.nc_aperte > 0 ? 'Ha non conformità: usa Disattiva' : 'Elimina la sede'} onClick={() => remove(s)}>Elimina</button>}</div></td>
               </tr>
             ))}</tbody>
           </table></div>

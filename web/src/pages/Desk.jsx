@@ -53,6 +53,11 @@ export default function Desk({ readOnly = false }) {
   const [filter, setFilter] = useState({ q: '', sede: '', from: '', to: '', solo_nc: sede ? '1' : '' });
   const { data: recent, reload } = useApi(`/accettazioni${qs({ ...filter, limit: 60 })}`, [live.tick]);
 
+  const removeAcc = async () => {
+    if (!acc || !window.confirm(`Eliminare l'accettazione ${acc.id} registrata manualmente? L'operazione non si annulla.`)) return;
+    try { await api.del(`/accettazioni/${encodeURIComponent(acc.id)}`); toast('Accettazione eliminata'); setAcc(null); setCode(''); nav('/desk', { replace: true }); reload(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
   const lookup = async (id, refresh = false) => {
     const v = String(id || code).trim();
     if (!v) return;
@@ -83,7 +88,8 @@ export default function Desk({ readOnly = false }) {
         <Card className="span2" title={`Accettazione ${acc.id}`} actions={<>
           {acc.lisError && <Badge tone="red">LIS non raggiungibile</Badge>}
           <Badge tone={acc.origine === 'MANUALE' ? 'mauve' : 'blue'}>{acc.origine === 'MANUALE' ? 'registrata manualmente' : `da ${acc.origine}`}</Badge>
-          {!sede && <button className="btn sm ghost" onClick={() => lookup(acc.id, true)}>Aggiorna dal LIS</button>}
+          {!sede && acc.origine !== 'MANUALE' && <button className="btn sm ghost" onClick={() => lookup(acc.id, true)}>Aggiorna dal LIS</button>}
+          {!sede && acc.origine === 'MANUALE' && <button className="btn sm danger" disabled={(acc.nc || []).length > 0} title={(acc.nc || []).length ? 'Ha non conformità collegate: annullale prima' : 'Elimina la registrazione manuale'} onClick={removeAcc}>Elimina</button>}
           {!sede && <button className="btn" onClick={() => setWizard(true)}><Icon name="plus" /> Nuova NC</button>}
         </>}>
           <div className="acc-head">

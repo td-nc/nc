@@ -70,7 +70,7 @@ docker run -d --name tdncdb -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB
 cd server && npm install
 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc SESSION_SECRET=x SEED_ADMIN_EMAIL=admin@test.it SEED_ADMIN_PASSWORD=Admin-Password-2026 SEED_DEMO=true DISABLE_SCHEDULER=true npm start
 cd web && npm install && npm run dev        # http://localhost:5173, proxy API su :3000
-# test end-to-end (database vuoto + seed demo): 17 scenari dal desk alla verifica di efficacia, HL7, connettore StudioLAB e import sedi
+# test end-to-end (database vuoto + seed demo): 19 scenari dal desk alla verifica di efficacia, HL7, connettore StudioLAB e import sedi, eliminazione sedi e accettazioni manuali
 # per il connettore: node test/mock-lis.mjs (nodo ServiceNET finto su :3999) e avvio del server con LIS_API_KEY=test-key LIS_BASE_URL=http://localhost:3999 LIS_WRITE_BACK=true
 cd server && BASE=http://localhost:3000 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc npm test
 ```
