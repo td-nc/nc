@@ -274,6 +274,7 @@ export default function NcDetail() {
                 <div className="small muted">Sede inviante</div><div className="strong">{sede.nome} <span className="muted small">({sede.codice})</span></div>
                 <div className="small muted">{sede.email || <span className="red">email NC non impostata</span>}{sede.telefono ? ` · ${sede.telefono}` : ''}{sede.referente ? ` · ${sede.referente}` : ''}</div>
                 <div className="small muted mt">Blocco</div><div className="small">{nc.campione_bloccato ? 'Campione bloccato sul desk' : 'Campione non bloccato'}{nc.blocco_lis ? ' · esami bloccati su StudioLAB' : nc.blocco_lis_esito ? ` · LIS: ${nc.blocco_lis_esito}` : ''}</div>
+                {(nc.lis_segnalazione_id || nc.lis_segnalazione_esito) && <><div className="small muted mt">Segnalazione StudioLAB</div><div className="small">{nc.lis_segnalazione_id ? `n. ${nc.lis_segnalazione_id} · ${nc.lis_segnalazione_esito || ''}` : nc.lis_segnalazione_esito}</div></>}
                 {nc.sent_at && <><div className="small muted mt">Inviata alla sede</div><div className="small">{itDateTime(nc.sent_at)}{nc.first_response_at ? ` · prima risposta ${itDateTime(nc.first_response_at)}` : ''}</div></>}
               </div>
             </div>

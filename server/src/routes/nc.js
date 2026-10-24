@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { ah, bad, notFound, audit, parse, forbidden, HttpError, diff } from '../lib/util.js';
 import { requireLab, requireQualita, isSede, isLab, isQualita, canSeeSede } from '../lib/access.js';
 import { getSettings } from '../lib/settings.js';
-import { NC_COLS, NC_FROM, loadNc, viewFor, nextCodice, slaDue, checkRicorrenza, addMessaggio, assertVersion, emit, inviaAllaSede, bloccaSuLis, sbloccaSuLis, APERTE, STATO_LABEL } from '../lib/nc.js';
+import { NC_COLS, NC_FROM, loadNc, viewFor, nextCodice, slaDue, checkRicorrenza, addMessaggio, assertVersion, emit, inviaAllaSede, bloccaSuLis, sbloccaSuLis, apriSegnalazioneLis, commentaSegnalazioneLis, risolviSegnalazioneLis, APERTE, STATO_LABEL } from '../lib/nc.js';
 import * as mail from '../lib/mail.js';
 import * as lis from '../lib/lis.js';
 import { rapportoPdf, exportXlsx, listForExport } from '../lib/report.js';
@@ -123,6 +123,7 @@ r.post('/nc', requireLab, ah(async (req, res) => {
 
   let blocco = null;
   if (b.blocca_lis) blocco = await bloccaSuLis(nc, acc);
+  const segnalazione = await apriSegnalazioneLis(await loadNc(nc.id), who(req));
   let invio = null, invioErrore = null;
   if (b.invia) {
     try { invio = await inviaAllaSede(req, nc); }
@@ -130,7 +131,7 @@ r.post('/nc', requireLab, ah(async (req, res) => {
   }
   const full = await loadNc(nc.id);
   emit('nc.created', full, who(req), `${full.codice} · ${full.sede_nome}`);
-  res.status(201).json({ ...viewFor(full, req.user), ricorrenza: ric, blocco, email: invio?.email || null, invioErrore });
+  res.status(201).json({ ...viewFor(full, req.user), ricorrenza: ric, blocco, segnalazione, email: invio?.email || null, invioErrore });
 }));
 
 // ---------- dettaglio ----------
@@ -214,6 +215,7 @@ r.post('/nc/:id/messaggi', ah(async (req, res) => {
     const opener = nc.opened_by ? await one('SELECT email FROM users WHERE id=$1', [nc.opened_by]) : null;
     await mail.enqueue({ ncId: nc.id, tipo: 'NC_RISPOSTA', to: [...config.mail.labNotify, ...labUsers.map((u) => u.email), opener?.email].filter(Boolean), subject: tpl.subject, html: tpl.html });
     emit('nc.replied', full, who(req), `${full.codice} · risposta di ${sede.nome}`);
+    await commentaSegnalazioneLis(nc, `Risposta della sede ${sede.nome} (${b.contatto_nome.trim()}): ${b.testo.trim()}${b.azione_eseguita ? ' · azione eseguita' : ''}`, b.contatto_nome.trim());
     return res.status(201).json({ messaggio: msg, nc: viewFor(full, req.user) });
   }
 
@@ -230,7 +232,7 @@ r.post('/nc/:id/messaggi', ah(async (req, res) => {
   let email = null;
   if (!interno) ({ email } = await inviaAllaSede(req, nc, { messaggio: b.testo.trim() }));
   const full = await loadNc(nc.id);
-  if (!interno) emit('nc.updated', full, who(req), `${full.codice} · nuova richiesta alla sede`);
+  if (!interno) { emit('nc.updated', full, who(req), `${full.codice} · nuova richiesta alla sede`); await commentaSegnalazioneLis(nc, `Richiesta alla sede: ${b.testo.trim()}`, who(req)); }
   res.status(201).json({ messaggio: msg, nc: viewFor(full, req.user), email });
 }));
 
@@ -316,6 +318,7 @@ r.post('/nc/:id/chiudi', requireLab, ah(async (req, res) => {
   });
   const esiti = {};
   if (b.sblocca_lis) esiti.sblocco = await sbloccaSuLis(nc, acc);
+  esiti.segnalazione = await risolviSegnalazioneLis(nc, b.esito.trim(), who(req));
   const full = await loadNc(nc.id);
   if (b.notifica_sede) {
     const tpl = mail.tplChiusura(full, sede, b.esito.trim());

@@ -29,9 +29,12 @@ export const config = {
   },
   // StudioLAB ServiceNET (CB Sistemi)
   lis: {
-    baseUrl: (env.LIS_BASE_URL || 'https://servicenet.studiolab.it').replace(/\/$/, ''),
+    // Produzione Toscana Diagnostica: https://servicenet.toscanadiagnostica.it (nodo ServiceNET "GIPONEXT"); demo CB: https://servicenet.studiolab.it
+    baseUrl: (env.LIS_BASE_URL || 'https://servicenet.toscanadiagnostica.it').replace(/\/(API\/?)?$/i, ''),
     apiKey: env.LIS_API_KEY || '',
-    codiceCliente: env.LIS_CODICE_CLIENTE || '',           // codice del nodo laboratorio, se richiesto dalle chiamate
+    codiceCliente: env.LIS_CODICE_CLIENTE || 'TD',          // CodiceCliente da valorizzare nelle chiamate (indicazione CB Sistemi: "TD")
+    segnalazioni: (env.LIS_SEGNALAZIONI || 'true') === 'true',       // apre/risolve una segnalazione su StudioLAB per ogni NC (richiede LIS_WRITE_BACK)
+    tipoSegnalazione: Number(env.LIS_TIPO_SEGNALAZIONE || 0),       // TipoSegnalazione (enum 0-9 dello swagger, significato non documentato: da confermare con CB)
     mittente: env.LIS_MITTENTE || 'td-nc',
     pushSecret: env.LIS_PUSH_SECRET || '',                 // segreto condiviso per il webhook /api/lis/push e /api/hl7
     writeBack: (env.LIS_WRITE_BACK || 'false') === 'true', // blocco/sblocco esami e allegati su StudioLAB

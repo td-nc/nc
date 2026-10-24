@@ -233,3 +233,23 @@ test('canale HL7 end-to-end: rifiuto senza segreto, ACK sempre HTTP 200, accetta
   const acc2 = await admin.get('/accettazioni/HL7-ACC-77'); assert.equal(acc2.data.esami[0].bloccato, true); assert.equal(acc2.data.sede_codice, '3606');
   const st = await admin.get('/lis/status'); assert.ok(st.data.stats.hl7 >= 3);
 });
+
+test('connettore StudioLAB (nodo finto): paziente dall\'API, catalogo con CodiceCliente TD, segnalazione aperta/commentata/risolta, blocco esami', async () => {
+  if (process.env.LIS_API_KEY !== 'test-key') return;   // server avviato senza il nodo finto (vedi README, sezione test)
+  const st = await admin.get('/lis/status'); assert.equal(st.data.ok, true); assert.equal(st.data.whoami.CodiceServiceNet, 'GIPONEXT'); assert.equal(st.data.versione, '10.3.2.0');
+  assert.equal(st.data.codiceCliente, 'TD'); assert.equal(st.data.catalogo.ok, false); assert.match(st.data.catalogo.error, /Codice cliente non valido/);
+  // richiamo per numero: la cache si popola con stato, esami e paziente restituiti dall'API
+  const a = await admin.get('/accettazioni/LIS-2026-500'); assert.equal(a.status, 200); assert.equal(a.data.paziente_cognome, 'ROSSI'); assert.equal(a.data.paziente_cf, 'RSSMRA70E04D612Q'); assert.equal(a.data.esami.length, 2); assert.equal(a.data.origine, 'LIS');
+  await admin.patch('/accettazioni/LIS-2026-500/sede', { sede_id: sede.id });
+  const tipi = (await admin.get('/tipi')).data; const t = tipi.filter((x) => x.macro === 'DOCUMENTALE' && x.attivo).at(-1);   // tipologia non usata dai test precedenti: evita la soglia di ricorrenza
+  const r = await admin.post('/nc', { accettazione_id: 'LIS-2026-500', macro: 'DOCUMENTALE', tipo_id: t.id, gravita: 'MINORE', descrizione: 'Provetta emolizzata', azione_attesa: 'Nuovo prelievo', esami_coinvolti: [{ cod: 'EMO', idEsame: 'P1' }], blocca_lis: true, invia: true });
+  assert.equal(r.status, 201, JSON.stringify(r.data)); assert.equal(r.data.blocco.done, true); assert.equal(r.data.segnalazione.done, true); assert.equal(r.data.segnalazione.id, '4711');
+  const d = await admin.get(`/nc/${r.data.id}`); assert.equal(d.data.nc.lis_segnalazione_id, "4711"); assert.equal(d.data.nc.lis_segnalazione_esito, "aperta"); assert.equal(d.data.nc.blocco_lis, true);
+  const m = await admin.post(`/nc/${r.data.id}/messaggi`, { tipo: 'RICHIESTA', testo: 'Serve il nuovo campione entro domani', allegati: [] }); assert.equal(m.status, 201);
+  await admin.post(`/nc/${r.data.id}/trattamento`, { trattamento_tipo: 'NUOVO_CAMPIONE' });
+  const c = await admin.post(`/nc/${r.data.id}/chiudi`, { esito: 'Nuovo campione ricevuto', sblocca_lis: true, notifica_sede: false }); assert.equal(c.status, 200, JSON.stringify(c.data));
+  assert.equal(c.data.segnalazione.done, true); assert.equal(c.data.sblocco.done, true);
+  const d2 = await admin.get(`/nc/${r.data.id}`); assert.equal(d2.data.nc.lis_segnalazione_esito, "risolta");
+  const ev = (await admin.get('/lis/status')).data.eventi.map((e) => e.dettaglio).join('\n');
+  assert.match(ev, /segnalazione 4711 aperta/); assert.match(ev, /segnalazione 4711 risolta/);
+});

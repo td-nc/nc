@@ -40,13 +40,17 @@ services:
         sync: false   # tenant id di Toscana Diagnostica (single tenant) oppure "organizations"
       # StudioLAB ServiceNET (CB Sistemi)
       - key: LIS_BASE_URL
-        value: https://servicenet.studiolab.it
+        value: https://servicenet.toscanadiagnostica.it   # nodo ServiceNET di produzione (demo CB: https://servicenet.studiolab.it)
       - key: LIS_API_KEY
-        sync: false
+        sync: false      # chiave rilasciata da CB Sistemi: inserirla nel dashboard Render, mai nel repository
       - key: LIS_CODICE_CLIENTE
-        sync: false
+        value: TD        # CodiceCliente da valorizzare nelle chiamate (indicazione CB Sistemi)
       - key: LIS_WRITE_BACK
-        value: "false"   # true per bloccare/sbloccare esami e allegare il rapporto NC su StudioLAB
+        value: "false"   # true per bloccare/sbloccare esami, allegare il rapporto NC e aprire la segnalazione su StudioLAB
+      - key: LIS_SEGNALAZIONI
+        value: "true"    # con write-back attivo: ogni NC apre una segnalazione (Prest_Messaggi) sull'accettazione in StudioLAB
+      - key: LIS_TIPO_SEGNALAZIONE
+        value: "0"       # TipoSegnalazione (0-9): significato da confermare con CB Sistemi
       - key: LIS_PUSH_SECRET
         generateValue: true   # da comunicare a CB Sistemi per /api/lis/push e /api/hl7 (header X-Push-Secret)
       # Email in uscita da laboratorio@toscanadiagnostica.it

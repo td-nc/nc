@@ -53,8 +53,16 @@ function Shell() {
   const live = useLive(user);
   useEffect(() => setOpen(false), [loc.pathname]);
   const c = live.counts;
-  const L = ({ to, icon, children, end, count, tone }) => (
-    <NavLink to={to} end={end}><Icon name={icon} />{children}{count > 0 && <span className={`count ${tone || ''}`}>{count}</span>}</NavLink>
+  // Attivo = stesso percorso E stessa query: le viste di /nc (tutte, oltre SLA, da verificare) sono voci distinte
+  const isOn = (to) => {
+    const [path, search = ''] = to.split('?');
+    if (loc.pathname !== path && !(path !== '/' && loc.pathname.startsWith(`${path}/`) && !search)) return false;
+    const want = new URLSearchParams(search), got = new URLSearchParams(loc.search);
+    if (!search) return ![...got.keys()].some((k) => ['stato', 'scadute'].includes(k));
+    return [...want.entries()].every(([k, v]) => got.get(k) === v);
+  };
+  const L = ({ to, icon, children, count, tone }) => (
+    <NavLink to={to} end className={() => (isOn(to) ? 'active' : '')}><Icon name={icon} />{children}{count > 0 && <span className={`count ${tone || ''}`}>{count}</span>}</NavLink>
   );
   return (
     <LiveCtx.Provider value={live}>

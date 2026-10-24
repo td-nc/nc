@@ -69,9 +69,12 @@ r.post('/email/test', requireAdmin, ah(async (req, res) => {
 
 // ---- LIS
 r.get('/lis/status', requireInternal, ah(async (_req, res) => {
-  const out = { enabled: config.lis.enabled, baseUrl: config.lis.baseUrl, writeBack: config.lis.writeBack, push: Boolean(config.lis.pushSecret), ok: null, whoami: null, error: null };
+  const out = { enabled: config.lis.enabled, baseUrl: config.lis.baseUrl, codiceCliente: config.lis.codiceCliente, writeBack: config.lis.writeBack, segnalazioni: config.lis.segnalazioni, push: Boolean(config.lis.pushSecret), ok: null, whoami: null, versione: null, error: null, catalogo: null };
   if (config.lis.enabled) {
     try { out.whoami = await lis.whoami(); out.ok = true; } catch (e) { out.ok = false; out.error = e.message; }
+    try { const e = await lis.ping(); out.versione = e?.Version || null; } catch { /* non bloccante */ }
+    // verifica del CodiceCliente sul catalogo esami: "Codice cliente non valido" = codice da allineare con CB Sistemi
+    if (out.ok) { try { const cat = await lis.elencoEsami({ soloCount: true }); out.catalogo = { ok: true, esami: cat }; } catch (e) { out.catalogo = { ok: false, error: e.message }; } }
   }
   const last = await many('SELECT * FROM lis_eventi ORDER BY created_at DESC LIMIT 50');
   const stats = await one(`SELECT count(*) FILTER (WHERE canale='HL7')::int AS hl7, count(*) FILTER (WHERE canale='PUSH')::int AS push, count(*) FILTER (WHERE canale='API')::int AS api, count(*) FILTER (WHERE esito='ERRORE' AND created_at > now() - interval '24 hours')::int AS errori_24h FROM lis_eventi`);

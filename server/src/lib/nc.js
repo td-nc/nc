@@ -125,6 +125,44 @@ export async function sbloccaSuLis(nc, acc) {
   return { done: esiti.every((x) => x.endsWith('sbloccato')), esito: esiti.join('; ') };
 }
 
+// Segnalazione su StudioLAB (Prest_Messaggi): la NC compare anche nel LIS. Mai bloccante: registra l'esito sulla NC.
+const segAttive = () => config.lis.enabled && config.lis.writeBack && config.lis.segnalazioni;
+export async function apriSegnalazioneLis(nc, by) {
+  if (!segAttive() || nc.lis_segnalazione_id) return { done: false };
+  const testo = `${nc.codice} · ${nc.tipo_label || nc.macro}${nc.gravita ? ` · ${nc.gravita}` : ''}
+${nc.descrizione || ''}${nc.azione_attesa ? `
+Azione attesa: ${nc.azione_attesa}` : ''}
+Dettagli: ${config.baseUrl}/nc/${nc.id}`.slice(0, 2000);
+  try {
+    const id = await lis.inserisciSegnalazione(nc.accettazione_id, { messaggio: testo, inseritoDa: by || 'td-nc', tipo: nc.lis_tipo ?? undefined });
+    await q('UPDATE nc SET lis_segnalazione_id=$2, lis_segnalazione_esito=$3 WHERE id=$1', [nc.id, id, 'aperta']);
+    await lis.logEvento('API', 'OK', { accettazioneId: nc.accettazione_id, dettaglio: `segnalazione ${id ?? '?'} aperta per ${nc.codice}` });
+    return { done: true, id };
+  } catch (e) {
+    await q('UPDATE nc SET lis_segnalazione_esito=$2 WHERE id=$1', [nc.id, `errore: ${e.message}`]);
+    await lis.logEvento('API', 'ERRORE', { accettazioneId: nc.accettazione_id, dettaglio: `segnalazione per ${nc.codice}: ${e.message}` });
+    return { done: false, esito: e.message };
+  }
+}
+export async function commentaSegnalazioneLis(nc, testo, by) {
+  if (!segAttive() || !nc.lis_segnalazione_id) return { done: false };
+  try { await lis.commentaSegnalazione(nc.accettazione_id, nc.lis_segnalazione_id, { commento: String(testo).slice(0, 2000), inseritoDa: by || 'td-nc' }); return { done: true }; }
+  catch (e) { await lis.logEvento('API', 'ERRORE', { accettazioneId: nc.accettazione_id, dettaglio: `commento segnalazione ${nc.lis_segnalazione_id} (${nc.codice}): ${e.message}` }); return { done: false, esito: e.message }; }
+}
+export async function risolviSegnalazioneLis(nc, esito, by) {
+  if (!segAttive() || !nc.lis_segnalazione_id) return { done: false };
+  try {
+    await lis.risolviSegnalazione(nc.accettazione_id, nc.lis_segnalazione_id, { risoltoDa: by || 'td-nc', risoluzione: String(esito).slice(0, 2000) });
+    await q('UPDATE nc SET lis_segnalazione_esito=$2 WHERE id=$1', [nc.id, 'risolta']);
+    await lis.logEvento('API', 'OK', { accettazioneId: nc.accettazione_id, dettaglio: `segnalazione ${nc.lis_segnalazione_id} risolta (${nc.codice})` });
+    return { done: true };
+  } catch (e) {
+    await q('UPDATE nc SET lis_segnalazione_esito=$2 WHERE id=$1', [nc.id, `risoluzione non riuscita: ${e.message}`]);
+    await lis.logEvento('API', 'ERRORE', { accettazioneId: nc.accettazione_id, dettaglio: `risoluzione segnalazione ${nc.lis_segnalazione_id} (${nc.codice}): ${e.message}` });
+    return { done: false, esito: e.message };
+  }
+}
+
 // ---------- scheduler: solleciti, escalation, coda email ----------
 export async function runSlaCheck() {
   const s = await getSettings();

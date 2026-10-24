@@ -24,7 +24,7 @@ Tre macro-aree di NC (fisiche/biologiche, informatiche/LIS, documentali) con cat
 
 ## Deploy su Render
 
-1. Repository GitHub `tdintegration/td-nc` con questo codice. Su render.com: **New > Blueprint**, collegare il repository: `render.yaml` crea database e applicazione (Francoforte, piano Starter + database Basic).
+1. Repository GitHub `td-nc/nc` con questo codice (i file di questo zip vanno alla radice del repository, non in una sottocartella). Su render.com: **New > Blueprint**, collegare il repository: `render.yaml` crea database e applicazione (Francoforte, piano Starter + database Basic).
 2. Variabili da impostare nel pannello: `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, `ENTRA_AUTHORITY` (tenant id TD), `SEED_ADMIN_PASSWORD` (facoltativa, min 12 caratteri), poi quelle di LIS ed email appena disponibili (sotto).
 3. Primo avvio: schema, catalogo tipologie, sede interna `LAB-SESTO`, amministratore `francesco.epifani@toscanadiagnostica.it`. L'app risponde su `https://td-nc.onrender.com`.
 4. Dominio: Settings > Custom Domains > `nc.toscanadiagnostica.it`, DNS `CNAME nc -> td-nc.onrender.com`, poi `BASE_URL=https://nc.toscanadiagnostica.it` e aggiornamento del redirect URI su Entra. Il link nelle email usa `BASE_URL`.
@@ -48,7 +48,13 @@ Alternativa SMTP (richiede SMTP AUTH abilitato sulla casella): `MAIL_PROVIDER=sm
 
 ## StudioLAB (CB Sistemi): integrazione
 
-**API REST ServiceNET** (`https://servicenet.studiolab.it/swagger/ui/index`, v10.0.7.0): lettura accettazione per numero (`GET /api/accettazioni?id=`), blocco/sblocco esame, allegati, notizie cliniche. Il modello `Cliente` ha `EmailNonConformita`, l'esame ha `TipoNonConformita`/`NonConformita`. Variabili: `LIS_API_KEY`, `LIS_CODICE_CLIENTE`, `LIS_WRITE_BACK`. Limite: la lettura per numero non restituisce paziente né cliente inviante e non esiste un elenco accettazioni.
+**API REST ServiceNET**. Nodo di produzione Toscana Diagnostica `https://servicenet.toscanadiagnostica.it/API/` (WebApi 10.3.2.0, nodo `GIPONEXT`; swagger pubblico: `https://servicenet.studiolab.it/swagger/ui/index`). Variabili: `LIS_BASE_URL` (default produzione), `LIS_API_KEY` (chiave rilasciata da CB Sistemi: solo nel pannello Render, mai nel repository), `LIS_CODICE_CLIENTE=TD`, `LIS_WRITE_BACK`, `LIS_SEGNALAZIONI`, `LIS_TIPO_SEGNALAZIONE`.
+
+Cosa usa td-nc (verificato sul nodo di produzione il 24/10/2026):
+- `GET /api/accettazioni?id=` → stato, esami (`Bloccato`, `TipoNonConformita`, `NonConformita`), referti, allegati e **paziente** (`Paziente`, presente dalla 10.3). Il cliente inviante non c'è: la sede arriva dal flusso HL7 (ORC-13) o dall'assegnazione nel Desk.
+- Con `LIS_WRITE_BACK=true`: `PUT .../esami/blocca|sblocca` (sospensione della refertazione), `POST .../allegati` (rapporto NC in PDF), e con `LIS_SEGNALAZIONI=true` una **segnalazione** (`POST /api/accettazioni/segnalazioni`, tabella Prest_Messaggi) per ogni NC: le richieste alla sede e le risposte diventano commenti, la chiusura la risolve (`PUT .../risolto`). Così la NC è visibile anche dentro StudioLAB. `TipoSegnalazione` è un enum 0-9 non documentato nello swagger: da confermare con CB.
+- Non esiste un endpoint "elenco accettazioni": l'archivio locale si popola con le notifiche HL7/push inviate da StudioLAB e con le ricerche per numero (Desk, barcode). Per avere in td-nc tutte le accettazioni del laboratorio serve la configurazione lato CB descritta sotto.
+- `GET /api/esami?CodiceCliente=TD` risponde oggi `Codice cliente non valido` (visibile in Impostazioni > StudioLAB): non blocca il flusso NC, ma il codice va allineato con CB Sistemi.
 
 **HL7 v2.5 over HTTPS** secondo la specifica CB Sistemi "Integrazione HL7 con ServiceNET" rev. 3 (27/03/2026), Appendice B: StudioLAB invia `POST {BASE_URL}/api/hl7`, `Content-Type: text/plain`, header `X-API-KEY: <LIS_PUSH_SECRET>`, body HL7 (segmenti separati da `\r\n`); td-nc risponde sempre HTTP 200 con l'ACK nel body (`MSA|AA` oppure `MSA|AE|<errore>`, `MSH-9 = ACK^<trigger>`). Messaggi gestiti: `OML^O21` (inserimento e notifica cambio stato: ORC-1 NW/SC/HD/SN/CA, ORC-5 IP/CA/HD/CM/SC), `ORL^O22` (numero accettazione del laboratorio in OBR-20), `MDM^T02/T10` (referto; ORC-1 `OC` = esame non eseguito per non conformità), `ADT^A05/A39` (anagrafica). Mappatura: PID-3 `NN` codice fiscale, PID-5/7/8 paziente, PV1-19/ORC-4 id accettazione placer, PV1-44 data, **ORC-13 codice cliente = sede inviante** (fallback FT1-13.1; MSH-4 solo in mancanza, senza creare sedi), OBR-4 esami. Gli esami in HD/OC vengono marcati come bloccati/non eseguiti nell'archivio. MLLP/TCP non è supportato (Render non espone porte TCP): usare HL7 over HTTPS.
 
@@ -63,7 +69,8 @@ docker run -d --name tdncdb -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB
 cd server && npm install
 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc SESSION_SECRET=x SEED_ADMIN_EMAIL=admin@test.it SEED_ADMIN_PASSWORD=Admin-Password-2026 SEED_DEMO=true DISABLE_SCHEDULER=true npm start
 cd web && npm install && npm run dev        # http://localhost:5173, proxy API su :3000
-# test end-to-end (database vuoto + seed demo): 14 scenari dal desk alla verifica di efficacia
+# test end-to-end (database vuoto + seed demo): 16 scenari dal desk alla verifica di efficacia, HL7 e connettore StudioLAB
+# per il connettore: node test/mock-lis.mjs (nodo ServiceNET finto su :3999) e avvio del server con LIS_API_KEY=test-key LIS_BASE_URL=http://localhost:3999 LIS_WRITE_BACK=true
 cd server && BASE=http://localhost:3000 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc npm test
 ```
 
@@ -71,7 +78,7 @@ Oppure `cp .env.example .env` e `docker compose up --build` (app su http://local
 
 ## API
 
-Tutte sotto `/api`, sessione via cookie, header `X-Requested-With: td-nc` sulle richieste che modificano dati. Canali macchina senza sessione: `POST /api/lis/push`, `POST /api/hl7` (header `X-Push-Secret`).
+Tutte sotto `/api`, sessione via cookie, header `X-Requested-With: td-nc` sulle richieste che modificano dati. Canali macchina senza sessione: `POST /api/lis/push`, `POST /api/hl7` (header `X-API-KEY` o `X-Push-Secret` = `LIS_PUSH_SECRET`).
 
 - `auth`: config, login, logout, me, me/preferences, change-password, entra/login, entra/callback
 - `accettazioni` GET (elenco, filtri) · `accettazioni/:id` GET (cache + refresh LIS) · POST (manuale) · `:id/sede` PATCH
