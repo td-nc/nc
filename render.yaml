@@ -13,7 +13,7 @@ services:
       - key: PORT
         value: "3000"
       - key: BASE_URL
-        value: https://td-nc.onrender.com   # poi https://nc.toscanadiagnostica.it (Custom Domain + CNAME)
+        sync: false   # https://nc.toscanadiagnostica.it in produzione (https://td-nc.onrender.com prima del dominio). Impostato nel pannello, non viene sovrascritto dai sync del Blueprint
       - key: DATABASE_URL
         fromDatabase:
           name: td-nc-db
@@ -55,7 +55,7 @@ services:
         generateValue: true   # da comunicare a CB Sistemi per /api/lis/push e /api/hl7 (header X-Push-Secret)
       # Email in uscita da laboratorio@toscanadiagnostica.it
       - key: MAIL_PROVIDER
-        value: log   # graph | smtp | log (log = nessun invio reale, solo registro)
+        sync: false   # graph in produzione (smtp | log = nessun invio reale, solo registro). Impostato nel pannello, non viene sovrascritto dai sync del Blueprint
       - key: MAIL_FROM
         value: laboratorio@toscanadiagnostica.it
       - key: MAIL_FROM_NAME

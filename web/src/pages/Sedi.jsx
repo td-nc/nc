@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, isQualita } from '../auth.jsx';
 import { useApi, Card, Field, Loading, Empty, Badge, Modal, ErrorBox, useToast } from '../components/ui.jsx';
-import { SEDE_TIPO, itDateTime } from '../format.js';
+import { SEDE_TIPO, itDateTime, fileToB64 } from '../format.js';
 
 const EMPTY = { codice: '', nome: '', tipo: 'PUNTO_PRELIEVO', email_nc_override: '', email_cc: '', telefono: '', referente: '', indirizzo: '', citta: '', sla_ore: '', attiva: true, note: '' };
 
@@ -27,13 +27,27 @@ export default function Sedi() {
       setModal(null); toast('Sede salvata'); reload();
     } catch (e) { setErr(e); }
   };
+  const fileRef = useRef();
+  const [imp, setImp] = useState(null);   // esito import
+  const importXlsx = async (file) => {
+    if (!file) return;
+    setImp({ busy: true });
+    try { const r = await api.post('/sedi/import', { base64: await fileToB64(file) }); setImp(r); toast(`Import: ${r.create} sedi create, ${r.aggiornate} aggiornate`); reload(); }
+    catch (e) { setImp({ error: e.message }); }
+    finally { if (fileRef.current) fileRef.current.value = ''; }
+  };
   const rows = (data || []).filter((s) => !q || `${s.nome} ${s.codice} ${s.citta || ''}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="page">
       <div className="page-head">
         <div><h1>Sedi invianti</h1><div className="sub">Punti prelievo e centri medici Toscana Diagnostica, laboratori e strutture in Service. Il codice coincide con il CodiceCliente di StudioLAB; l'email NC arriva dal LIS (EmailNonConformita) e qui può essere sovrascritta.</div></div>
-        {q2 && <button className="btn" onClick={openNew}>Nuova sede</button>}
+        {q2 && <div className="row" style={{ gap: 8 }}>
+          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => importXlsx(e.target.files?.[0])} />
+          <button className="btn ghost" disabled={imp?.busy} onClick={() => fileRef.current?.click()} title="Esportazione 'Elenco clienti' di StudioLAB (.xlsx): crea le sedi nuove e aggiorna contatti di quelle esistenti">{imp?.busy ? 'Import in corso…' : 'Importa da StudioLAB (xlsx)'}</button>
+          <button className="btn" onClick={openNew}>Nuova sede</button>
+        </div>}
       </div>
+      {imp && !imp.busy && <div className={`alert ${imp.error ? 'err' : 'info'}`} style={{ marginBottom: 14 }}><div>{imp.error ? `Import non riuscito: ${imp.error}` : <>Import completato: {imp.create} sedi create, {imp.aggiornate} aggiornate su {imp.totale} righe{imp.saltate?.length ? `, saltate: ${imp.saltate.join(', ')}` : ''}. {imp.senza_email > 0 && <b>{imp.senza_email} sedi senza email: le NC verso queste sedi non possono essere inviate finché la Qualità non imposta un indirizzo (campo "Email NC" nella modifica).</b>}</>}</div></div>}
       <div className="filters">
         <Field label="Cerca"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="nome, codice, città" /></Field>
         <label className="f inline"><input type="checkbox" checked={tutte} onChange={(e) => setTutte(e.target.checked)} /> mostra anche le sedi disattivate</label>

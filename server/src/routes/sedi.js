@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import { one, many } from '../db.js';
 import { ah, bad, notFound, audit, parse } from '../lib/util.js';
@@ -49,6 +50,69 @@ r.put('/sedi/:id', requireQualita, ah(async (req, res) => {
       'sla_ore' in b ? (b.sla_ore ?? null) : cur.sla_ore, b.attiva ?? null, 'note' in b ? (b.note || null) : cur.note]);
   await audit(req, 'SEDE_UPDATED', { entity: 'sede', entityId: id, label: `${s.nome} (${s.codice})`, data: b });
   res.json(s);
+}));
+
+// ---- import anagrafica clienti da StudioLAB (esportazione Excel "Elenco clienti")
+// Colonne riconosciute (intestazioni StudioLAB): CodiceCliente, CodiceClienteFatturazione, RagSoc, PersonaDiRiferimento, Indirizzo, Cap, Citta,
+// Provincia, Telefono1, Telefono2, email, TipoCliente. Crea le sedi nuove e aggiorna nome/contatti di quelle esistenti senza toccare
+// email_nc_override, email_cc, SLA e stato attiva (campi gestiti in td-nc).
+const TIPO_MAP = (t) => { const x = (t || '').toLowerCase(); if (x.includes('prelie')) return 'PUNTO_PRELIEVO'; if (x.includes('centro')) return 'CENTRO_MEDICO'; if (x.includes('interna')) return 'LABORATORIO'; return 'SERVICE'; };
+const firstEmail = (v) => { const m = String(v || '').match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g); return m ? m[0].toLowerCase() : null; };
+const str = (v) => (v == null ? '' : typeof v === 'object' && v.text != null ? String(v.text) : String(v)).trim();
+export function parseClientiXlsx(ws) {
+  const head = {}; ws.getRow(1).eachCell((c, i) => { head[str(c.value).toLowerCase()] = i; });
+  const col = (row, ...names) => { for (const n of names) { const i = head[n.toLowerCase()]; if (i) return str(row.getCell(i).value); } return ''; };
+  if (!head.codicecliente || !head.ragsoc) throw bad('Formato non riconosciuto: servono le colonne CodiceCliente e RagSoc dell\'esportazione StudioLAB');
+  const out = [];
+  ws.eachRow((row, n) => {
+    if (n === 1) return;
+    const codice = col(row, 'CodiceCliente'); if (!codice) return;
+    const cap = col(row, 'Cap'), citta = col(row, 'Citta'), prov = col(row, 'Provincia');
+    const capogruppo = col(row, 'CodiceClienteFatturazione');
+    out.push({
+      codice, nome: col(row, 'RagSoc') || codice, tipo: TIPO_MAP(col(row, 'TipoCliente')), email_nc: firstEmail(col(row, 'email', 'Email', 'EmailNonConformita')),
+      telefono: [col(row, 'Telefono1'), col(row, 'Telefono2')].filter(Boolean).join(' / ') || null, referente: col(row, 'PersonaDiRiferimento') || null,
+      indirizzo: col(row, 'Indirizzo') || null, citta: [cap, citta, prov ? `(${prov})` : ''].filter(Boolean).join(' ') || null,
+      capogruppo: capogruppo && capogruppo !== codice ? capogruppo : null, raw: Object.fromEntries(Object.entries(head).map(([k, i]) => [k, str(row.getCell(i).value)])),
+    });
+  });
+  return out;
+}
+
+r.post('/sedi/import', requireQualita, ah(async (req, res) => {
+  const b = parse(z.object({ base64: z.string().min(10), disattiva_mancanti: z.boolean().optional().default(false) }), req.body);
+  const buf = Buffer.from(b.base64, 'base64');
+  if (buf.length > 5 * 1024 * 1024) throw bad('File troppo grande (max 5 MB)');
+  const wb = new ExcelJS.Workbook();
+  try { await wb.xlsx.load(buf); } catch { throw bad('Il file non è un Excel valido (.xlsx)'); }
+  const ws = wb.worksheets[0]; if (!ws) throw bad('Foglio vuoto');
+  const rows = parseClientiXlsx(ws);
+  const esito = { create: 0, aggiornate: 0, saltate: [], senza_email: 0, totale: rows.length };
+  const byCode = new Map(rows.map((x) => [x.codice.toLowerCase(), x]));
+  for (const x of rows) {
+    if (/^prova$/i.test(x.codice) || /^prova$/i.test(x.nome)) { esito.saltate.push(`${x.codice} (record di prova)`); continue; }
+    const padre = x.capogruppo ? byCode.get(x.capogruppo.toLowerCase()) : null;
+    // sede figlia senza contatti: eredita email e telefono della capogruppo (es. reparti di una casa di cura)
+    const email = x.email_nc || padre?.email_nc || null, tel = x.telefono || padre?.telefono || null;
+    const note = x.capogruppo ? `Fatturazione a ${x.capogruppo}${padre ? ` (${padre.nome})` : ''}` : null;
+    if (!email) esito.senza_email++;
+    const cur = await one('SELECT id FROM sedi WHERE lower(codice)=lower($1)', [x.codice]);
+    if (cur) {
+      await one(`UPDATE sedi SET nome=$2, tipo=$3, email_nc=$4, telefono=coalesce($5, telefono), referente=coalesce($6, referente), indirizzo=coalesce($7, indirizzo), citta=coalesce($8, citta),
+        note=coalesce(note, $9), lis_json=$10, lis_synced_at=now(), updated_at=now() WHERE id=$1 RETURNING id`, [cur.id, x.nome, x.tipo, email, tel, x.referente, x.indirizzo, x.citta, note, JSON.stringify(x.raw)]);
+      esito.aggiornate++;
+    } else {
+      await one(`INSERT INTO sedi (codice, nome, tipo, email_nc, telefono, referente, indirizzo, citta, note, lis_json, lis_synced_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()) RETURNING id`,
+        [x.codice, x.nome, x.tipo, email, tel, x.referente, x.indirizzo, x.citta, note, JSON.stringify(x.raw)]);
+      esito.create++;
+    }
+  }
+  if (b.disattiva_mancanti) {
+    const r2 = await many(`UPDATE sedi SET attiva=false, updated_at=now() WHERE attiva AND tipo <> 'LABORATORIO' AND lower(codice) <> ALL($1::text[]) RETURNING codice`, [[...byCode.keys()]]);
+    esito.disattivate = r2.map((s) => s.codice);
+  }
+  await audit(req, 'SEDI_IMPORTED', { entity: 'sede', label: `import StudioLAB: ${esito.create} create, ${esito.aggiornate} aggiornate, ${esito.saltate.length} saltate` });
+  res.json(esito);
 }));
 
 export default r;

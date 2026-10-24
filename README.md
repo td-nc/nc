@@ -53,6 +53,7 @@ Alternativa SMTP (richiede SMTP AUTH abilitato sulla casella): `MAIL_PROVIDER=sm
 Cosa usa td-nc (verificato sul nodo di produzione il 24/10/2026):
 - `GET /api/accettazioni?id=` → stato, esami (`Bloccato`, `TipoNonConformita`, `NonConformita`), referti, allegati e **paziente** (`Paziente`, presente dalla 10.3). Il cliente inviante non c'è: la sede arriva dal flusso HL7 (ORC-13) o dall'assegnazione nel Desk.
 - Con `LIS_WRITE_BACK=true`: `PUT .../esami/blocca|sblocca` (sospensione della refertazione), `POST .../allegati` (rapporto NC in PDF), e con `LIS_SEGNALAZIONI=true` una **segnalazione** (`POST /api/accettazioni/segnalazioni`, tabella Prest_Messaggi) per ogni NC: le richieste alla sede e le risposte diventano commenti, la chiusura la risolve (`PUT .../risolto`). Così la NC è visibile anche dentro StudioLAB. `TipoSegnalazione` è un enum 0-9 non documentato nello swagger: da confermare con CB.
+- Non esiste una lettura dell'anagrafica clienti via API (solo aggiornamento): le sedi si caricano da **Sedi invianti > Importa da StudioLAB (xlsx)** con l'esportazione "Elenco clienti" di StudioLAB (colonne CodiceCliente, RagSoc, TipoCliente, email, Telefono1/2, PersonaDiRiferimento, Indirizzo/Cap/Citta/Provincia, CodiceClienteFatturazione). L'import crea le sedi nuove, aggiorna nome e contatti di quelle esistenti, fa ereditare email e telefono della capogruppo ai reparti (CodiceClienteFatturazione) e non tocca override email, CC, SLA e stato. Ripetibile.
 - Non esiste un endpoint "elenco accettazioni": l'archivio locale si popola con le notifiche HL7/push inviate da StudioLAB e con le ricerche per numero (Desk, barcode). Per avere in td-nc tutte le accettazioni del laboratorio serve la configurazione lato CB descritta sotto.
 - `GET /api/esami?CodiceCliente=TD` risponde oggi `Codice cliente non valido` (visibile in Impostazioni > StudioLAB): non blocca il flusso NC, ma il codice va allineato con CB Sistemi.
 
@@ -69,7 +70,7 @@ docker run -d --name tdncdb -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB
 cd server && npm install
 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc SESSION_SECRET=x SEED_ADMIN_EMAIL=admin@test.it SEED_ADMIN_PASSWORD=Admin-Password-2026 SEED_DEMO=true DISABLE_SCHEDULER=true npm start
 cd web && npm install && npm run dev        # http://localhost:5173, proxy API su :3000
-# test end-to-end (database vuoto + seed demo): 16 scenari dal desk alla verifica di efficacia, HL7 e connettore StudioLAB
+# test end-to-end (database vuoto + seed demo): 17 scenari dal desk alla verifica di efficacia, HL7, connettore StudioLAB e import sedi
 # per il connettore: node test/mock-lis.mjs (nodo ServiceNET finto su :3999) e avvio del server con LIS_API_KEY=test-key LIS_BASE_URL=http://localhost:3999 LIS_WRITE_BACK=true
 cd server && BASE=http://localhost:3000 DATABASE_URL=postgres://postgres:dev@localhost:5432/tdnc npm test
 ```

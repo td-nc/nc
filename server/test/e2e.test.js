@@ -253,3 +253,20 @@ test('connettore StudioLAB (nodo finto): paziente dall\'API, catalogo con Codice
   const ev = (await admin.get('/lis/status')).data.eventi.map((e) => e.dettaglio).join('\n');
   assert.match(ev, /segnalazione 4711 aperta/); assert.match(ev, /segnalazione 4711 risolta/);
 });
+
+test('import sedi dall\'esportazione "Elenco clienti" di StudioLAB: create, aggiornate, figlie ereditano i contatti della capogruppo', async () => {
+  const fs = await import('node:fs'); const path = await import('node:path');
+  const file = path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures', 'elenco-clienti.xlsx');
+  if (!fs.existsSync(file)) return;
+  const r = await admin.post('/sedi/import', { base64: fs.readFileSync(file).toString('base64') });
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.totale, 99); assert.ok(r.data.create >= 95); assert.ok(r.data.saltate.some((x) => x.startsWith('PROVA')));
+  const all = (await admin.get('/sedi?tutte=1')).data;
+  const vf = all.find((s) => s.codice === 'SER0002'); assert.equal(vf.email_effettiva, 'laboratorio.analisi@villa-fiorita.it'); assert.equal(vf.tipo, 'SERVICE');
+  const figlia = all.find((s) => s.codice === 'SER0005'); assert.equal(figlia.email_effettiva, 'laboratorio.analisi@villa-fiorita.it'); assert.match(figlia.note, /Fatturazione a SER0002/); assert.equal(figlia.telefono, '05744891236');
+  const pp = all.find((s) => s.codice === 'TD01'); assert.equal(pp.tipo, 'PUNTO_PRELIEVO'); assert.equal(pp.email_effettiva, null);
+  const multi = all.find((s) => s.codice === 'SER0014'); assert.equal(multi.email_effettiva, 'segreteria@baldinimc.it');
+  // secondo import: nessun duplicato, override manuale preservato
+  await admin.put(`/sedi/${pp.id}`, { email_nc_override: 'quarrata@toscanadiagnostica.it' });
+  const r2 = await admin.post('/sedi/import', { base64: fs.readFileSync(file).toString('base64') }); assert.equal(r2.data.create, 0); assert.equal(r2.data.aggiornate, 98);
+  const pp2 = (await admin.get('/sedi?tutte=1')).data.find((s) => s.codice === 'TD01'); assert.equal(pp2.email_effettiva, 'quarrata@toscanadiagnostica.it');
+});
