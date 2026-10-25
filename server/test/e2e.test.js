@@ -297,3 +297,9 @@ test('eliminazione NC: consentita senza risposta della sede, rifiutata dopo la r
   // utente di sede: vietato
   const forb = await sedeUser.del(`/nc/${nc.id}`); assert.equal(forb.status, 403);
 });
+
+test('estrazione XLSX delle sedi e reimport del file estratto (andata e ritorno)', async () => {
+  const x = await admin.get('/sedi/export.xlsx?tutte=1'); assert.equal(x.status, 200); assert.match(x.ct, /spreadsheet/); assert.ok(x.data.length > 5000);
+  const r = await admin.post('/sedi/import', { base64: Buffer.from(x.data).toString('base64') }); assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.create, 0); assert.ok(r.data.aggiornate >= 90);
+  const forb = await sedeUser.get('/sedi/export.xlsx'); assert.equal(forb.status, 403);
+});

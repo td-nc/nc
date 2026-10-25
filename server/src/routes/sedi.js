@@ -52,6 +52,29 @@ r.put('/sedi/:id', requireQualita, ah(async (req, res) => {
   res.json(s);
 }));
 
+// Esportazione XLSX dell'anagrafica sedi (stesse colonne della tabella + contatti e note). Importabile di nuovo: le intestazioni
+// CodiceCliente / RagSoc / TipoCliente / email / Telefono1 / PersonaDiRiferimento / Indirizzo / Cap / Citta / Provincia sono quelle di StudioLAB.
+r.get('/sedi/export.xlsx', requireQualita, ah(async (req, res) => {
+  const rows = await many(`SELECT ${cols} FROM sedi s ${req.query.tutte === '1' ? '' : 'WHERE s.attiva'} ORDER BY s.attiva DESC, s.tipo, s.nome`);
+  const wb = new ExcelJS.Workbook(); wb.creator = 'td-nc · Toscana Diagnostica';
+  const ws = wb.addWorksheet('Sedi invianti', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const TIPO = { PUNTO_PRELIEVO: 'Punto Prelievi', CENTRO_MEDICO: 'Centro Medico', SERVICE: 'Service', LABORATORIO: 'Laboratorio', ALTRO: 'Altro' };
+  ws.columns = [
+    { header: 'CodiceCliente', key: 'codice', width: 14 }, { header: 'RagSoc', key: 'nome', width: 44 }, { header: 'TipoCliente', key: 'tipo', width: 16 },
+    { header: 'email', key: 'email_nc', width: 34 }, { header: 'Email NC override', key: 'email_nc_override', width: 34 }, { header: 'Email effettiva', key: 'email_effettiva', width: 34 }, { header: 'Email CC', key: 'email_cc', width: 30 },
+    { header: 'Telefono1', key: 'telefono', width: 18 }, { header: 'PersonaDiRiferimento', key: 'referente', width: 26 }, { header: 'Indirizzo', key: 'indirizzo', width: 30 }, { header: 'Citta', key: 'citta', width: 26 },
+    { header: 'SLA ore', key: 'sla_ore', width: 9 }, { header: 'Attiva', key: 'attiva', width: 8 }, { header: 'NC aperte', key: 'nc_aperte', width: 10 }, { header: 'NC 90 gg', key: 'nc_90gg', width: 10 }, { header: 'Utenti', key: 'n_utenti', width: 8 },
+    { header: 'Note', key: 'note', width: 40 }, { header: 'Ultimo import LIS', key: 'lis_synced_at', width: 18 },
+  ];
+  ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF01212C' } };
+  for (const r2 of rows) ws.addRow({ ...r2, tipo: TIPO[r2.tipo] || r2.tipo, attiva: r2.attiva ? 'Sì' : 'No', sla_ore: r2.sla_ore ?? '', lis_synced_at: r2.lis_synced_at ? new Date(r2.lis_synced_at) : null });
+  ws.getColumn('lis_synced_at').numFmt = 'dd/mm/yyyy hh:mm';
+  ws.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + ws.columns.length)}1` };
+  res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="td-nc_sedi_${new Date().toISOString().slice(0, 10)}.xlsx"` });
+  await audit(req, 'SEDI_EXPORTED', { entity: 'sede', label: `${rows.length} sedi esportate` });
+  res.send(Buffer.from(await wb.xlsx.writeBuffer()));
+}));
+
 // Eliminazione: solo se la sede non ha non conformità. Le accettazioni in archivio perdono il riferimento (sede da riassegnare),
 // gli utenti di sede perdono l'associazione. Con NC presenti si usa la disattivazione, per non rompere lo storico e le statistiche.
 r.delete('/sedi/:id', requireQualita, ah(async (req, res) => {

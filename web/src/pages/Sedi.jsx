@@ -49,6 +49,7 @@ export default function Sedi() {
         <div><h1>Sedi invianti</h1><div className="sub">Punti prelievo e centri medici Toscana Diagnostica, laboratori e strutture in Service. Il codice coincide con il CodiceCliente di StudioLAB; l'email NC arriva dal LIS (EmailNonConformita) e qui può essere sovrascritta.</div></div>
         {q2 && <div className="row" style={{ gap: 8 }}>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => importXlsx(e.target.files?.[0])} />
+          <a className="btn ghost" href={`/api/sedi/export.xlsx${tutte ? '?tutte=1' : ''}`} title="Scarica l'anagrafica in Excel (stesse colonne dell'esportazione StudioLAB: si può correggere e reimportare)">Estrai XLSX</a>
           <button className="btn ghost" disabled={imp?.busy} onClick={() => fileRef.current?.click()} title="Esportazione 'Elenco clienti' di StudioLAB (.xlsx): crea le sedi nuove e aggiorna contatti di quelle esistenti">{imp?.busy ? 'Import in corso…' : 'Importa da StudioLAB (xlsx)'}</button>
           <button className="btn" onClick={openNew}>Nuova sede</button>
         </div>}
